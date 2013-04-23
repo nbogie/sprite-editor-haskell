@@ -9,7 +9,7 @@ import qualified Data.Map as M
 import Data.Array
 import Data.Time.Clock -- for naming new sprites
 import Data.List (nub, foldl')
-
+import Data.Maybe (fromMaybe)
 main = do
   a <- getArgs
   contents <- readFile "sprites.dat"
@@ -48,7 +48,7 @@ updateGame x gs = incCount gs
 
 incCount gs = gs { frame = frame gs + 1 }
 
-initGS sprs = GS { mirrorAxis = NoSym, frame = 0, cursorPos = (0,0), curSprite = initSprite, sprites = sprs}
+initGS sprs = GS { mirrorAxis = NoSym, frame = 0, libCursorPos = (0,0), cursorPos = (0,0), curSprite = initSprite, sprites = sprs}
 initSprite = ("untitled", array ((0,0), (7,7)) [((x,y),0) | x<- [0..7], y <- [0..7]])
 
 backgroundColor = colorSea 
@@ -63,19 +63,30 @@ saveSprite gs = do
 
 renameSprite nn (_, ar) = (nn, ar)
 
+deleteSprite :: GS -> GS
+deleteSprite gs = case spriteAtLibCursor gs of
+  Just (name,spr) -> gs { sprites = M.delete name (sprites gs) }
+  Nothing -> gs
 switchSprite :: GS -> GS
-switchSprite gs = gs { curSprite = head $ M.elems $ sprites gs }
+switchSprite gs = gs { curSprite = fromMaybe (curSprite gs) (spriteAtLibCursor gs) }
+spriteAtLibCursor gs = spriteAtPos (libCursorPos gs) gs
+spriteAtPos p gs = if ix < length sprs then Just (sprs !! ix) else Nothing
+  where sprs = M.elems (sprites gs)
+        ix = libCursorPosToSpriteNum p
+
 modAxis f gs = gs { mirrorAxis = f $ mirrorAxis gs }
 handleInput :: Event -> GS -> IO GS
-handleInput (EventKey k Down _ _) gs = handleDown k gs
+handleInput (EventKey k Down mods _) gs = handleDown k mods gs
 handleInput _ gs = return gs
-handleDown k gs = case k of
-  (SpecialKey KeyDown)  -> changeCursor CDown
-  (SpecialKey KeyUp)    -> changeCursor CUp
-  (SpecialKey KeyLeft)  -> changeCursor CLeft
-  (SpecialKey KeyRight) -> changeCursor CRight
+handleDown k mods gs  = let cursorType = if (shift mods == Down) then LibraryCursor else SpriteCursor
+  in case k of
+  (SpecialKey KeyDown)  -> changeCursor cursorType CDown
+  (SpecialKey KeyUp)    -> changeCursor cursorType CUp
+  (SpecialKey KeyLeft)  -> changeCursor cursorType CLeft
+  (SpecialKey KeyRight) -> changeCursor cursorType CRight
   (Char x) -> case x of
      'l' -> return $ switchSprite gs
+     'X' -> return $ deleteSprite gs
 --      '=' -> darken
 --     '-' -> lighten
      'm' -> return $ modSprite mirror gs
@@ -88,8 +99,11 @@ handleDown k gs = case k of
   where 
     modColor :: Int -> GS
     modColor cIx = modSprite (paintColorAt (mirrorAxis gs) (cursorPos gs) cIx) gs
-    changeCursor d = return $ gs { cursorPos = capPos ((0,0), (7,7))$ changePos d $ cursorPos gs } 
+    changeCursor :: CursorType -> CursorDir -> IO GS
+    changeCursor SpriteCursor d  = return $ gs { cursorPos    = capPos ((0,0), (7,7))$ changePos d $ cursorPos gs } 
+    changeCursor LibraryCursor d = return $ gs { libCursorPos = capPos ((0,0), (7,7))$ changePos d $ libCursorPos gs } 
 
+data CursorType = LibraryCursor | SpriteCursor deriving (Show, Eq)
 wipeSprite gs = modSprite wipe gs
 wipe :: MySprite -> MySprite
 wipe (n,a) = renameSprite n $ initSprite
@@ -128,6 +142,7 @@ type SpriteMap = Map String MySprite
 
 data GS = GS { frame :: Int
              , cursorPos :: (Int, Int)
+             , libCursorPos :: (Int, Int)
              , curSprite :: MySprite
              , sprites :: SpriteMap
              , mirrorAxis :: Axis
@@ -145,7 +160,7 @@ drawState gs = Pictures $
    
   where 
     i = frame gs
-    messages = ["hello", "world", show i, show $ mirrorAxis gs]
+    messages = ["hello", "world", show i, show $ mirrorAxis gs, show $ libCursorPosToSpriteNum (libCursorPos gs) ]
    
 drawCanvas _ sz gs = Pictures [Color black $ rectangleWire (8*szf) (8*szf)
                               , drawSprite 0 sz (curSprite gs)
@@ -153,10 +168,13 @@ drawCanvas _ sz gs = Pictures [Color black $ rectangleWire (8*szf) (8*szf)
   where szf = fromIntegral sz
                              
 drawAllSprites :: GS -> Picture
-drawAllSprites gs = drawSpritesAt posns (M.elems $ sprites gs) 4
+drawAllSprites gs = Pictures [ drawSpritesAt posns (M.elems $ sprites gs) spritesSize
+                             , drawLibCursor (libCursorPos gs `vecadd` (-3, -3)) (8*spritesSize)]
   where
-        posns = [(a-3,b-3) | a <- [0..5], b<-[0..5]]
+        posns = [(a-3,b-3) | a <- [0..7], b<-[0..7]]
+        spritesSize = 4
 
+vecadd (x,y) (a,b) = (x+a, y+b)
 drawSpritesAt posns sprs sz = Pictures $ map (\((x,y),s) -> translate (x*sprSize + 5) (y*sprSize + 5) $ drawSprite 0 sz s) $ zip posns sprs
   where sprSize = (fromIntegral sz)*8
 
@@ -173,9 +191,14 @@ cubeAt ((x,y),cIx) step size = case cIx of
 tileWidth :: Int
 tileWidth = 20
 
-drawCursor (x,y) = Color yellow $ translate (m x) (m y) $ rectangleWire (fi $ tileWidth - 4) (fi $ tileWidth - 4)
-  where m = fromIntegral .  (tileWidth *) . (+ (-4))
+drawLibCursor (x,y) sz = Color yellow $ translate (m x) (m y) $ rectangleWire (fi $ sz) (fi $ sz)
+  where m = fi .  (sz *)
         fi = fromIntegral
+
+drawCursor (x,y) = Color yellow $ translate (m x) (m y) $ rectangleWire (fi $ tileWidth - 4) (fi $ tileWidth - 4)
+  where m = fi .  (tileWidth *) . (+ (-4))
+        fi = fromIntegral
+
 cubeSolid c w =  Rotate 0 $ Pictures [Color black $ rectangleSolid (f w) (f w), Color c $ rectangleSolid (f w2) (f w2)]
   where f  = fromIntegral
         w2 | w < 8 = w - 1
@@ -241,3 +264,5 @@ writeSprite (name, (_, ar)) = unlines $ name : write ar
    write ar = wrapAt 8 [head $ show c | y <- [7,6..0], x <- [0..7], let c = ar ! (x,y)]
    wrapAt n [] = []
    wrapAt n xs = take n xs : wrapAt n (drop n xs)
+
+libCursorPosToSpriteNum (x,y) = 8*x + y
