@@ -78,7 +78,8 @@ handleDown k gs = case k of
      'l' -> return $ switchSprite gs
 --      '=' -> darken
 --     '-' -> lighten
-     'm' -> return $ mirrorSprite gs
+     'm' -> return $ modSprite mirror gs
+     'r' -> return $ modSprite rotateSprite gs
      'w' -> return $ wipeSprite gs
      's' -> saveSprite gs
      'a' -> return $ modAxis incAxis gs
@@ -87,7 +88,6 @@ handleDown k gs = case k of
   where 
     modColor :: Int -> GS
     modColor cIx = modSprite (paintColorAt (mirrorAxis gs) (cursorPos gs) cIx) gs
-    mirrorSprite gs = modSprite mirror gs
     changeCursor d = return $ gs { cursorPos = capPos ((0,0), (7,7))$ changePos d $ cursorPos gs } 
 
 wipeSprite gs = modSprite wipe gs
@@ -96,6 +96,8 @@ wipe (n,a) = renameSprite n $ initSprite
 mirror :: MySprite -> MySprite
 mirror (n, ar) = (n, arflip)
   where arflip = ar // [((x,y), ar ! (7-x, y)) | y <- [0..7], x <- [0..7]]
+rotateSprite (n, ar) = (n, arflip)
+  where arflip = ar // [((y, x), ar ! (x, y)) | y <- [0..7], x <- [0..7]]
 
 capPos ((x0,y0), (x1,y1)) (x,y) = (cap x x0 x1, cap y y0 y1)
   where
@@ -136,6 +138,7 @@ modSprite f gs = gs { curSprite = f $ curSprite gs }
 drawState :: GS -> Picture
 drawState gs = Pictures $ 
    [ translate (200)  (200)  $ drawCanvas (i `div` 20) 20 gs
+   , translate (200)  (-100) $ drawSprite 0 5 (curSprite gs)
    , translate (-200) (200)  $ drawAllSprites gs
    , translate (-200) (-200) $ textWithSprites (sprites gs) "HASKELL"
    ,  drawLines colorSeaGlass (-300,0) messages]
@@ -150,7 +153,7 @@ drawCanvas _ sz gs = Pictures [Color black $ rectangleWire (8*szf) (8*szf)
   where szf = fromIntegral sz
                              
 drawAllSprites :: GS -> Picture
-drawAllSprites gs = drawSpritesAt posns (M.elems $ sprites gs) 6
+drawAllSprites gs = drawSpritesAt posns (M.elems $ sprites gs) 4
   where
         posns = [(a-3,b-3) | a <- [0..5], b<-[0..5]]
 
@@ -164,7 +167,7 @@ drawSprite step size (sprName, spr) =
 cubeAt ((x,y),cIx) step size = case cIx of
       0 -> Pictures []  
       _ -> translate (f x) (f y) $ cubeSolid c edgeLen
-            where c = colorFor $ cIx
+            where c = colorFor $ (cIx + step)
                   f n = fromIntegral $ size * (fromIntegral n)
                   edgeLen = round $ (fromIntegral size) * 0.9
 tileWidth :: Int
