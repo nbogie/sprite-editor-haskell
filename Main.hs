@@ -155,13 +155,15 @@ drawState gs = Pictures $
    [ translate (200)  (200)  $ drawCanvas (i `div` 20) 20 gs
    , translate (200)  (-100) $ drawSprite 0 5 (curSprite gs)
    , translate (-200) (200)  $ drawAllSprites gs
-   , translate (-200) (-200) $ textWithSprites (sprites gs) "HASKELL"
+   , translate (fromIntegral (frame gs `mod` 800) - 300) (-300) $ drawSprite 0 5 (curSprite gs)
+   , translate (-200 - (frameAsFloat gs)) (-200) $ textWithSprites (sprites gs) "HASKELL"
    ,  drawLines colorSeaGlass (-300,0) messages]
    
   where 
     i = frame gs
     messages = ["hello", "world", show i, show $ mirrorAxis gs, show $ libCursorPosToSpriteNum (libCursorPos gs) ]
-   
+  
+frameAsFloat gs = fromIntegral $ frame gs
 drawCanvas _ sz gs = Pictures [Color black $ rectangleWire (8*szf) (8*szf)
                               , drawSprite 0 sz (curSprite gs)
                               ,  drawCursor $ cursorPos gs]
@@ -173,8 +175,8 @@ drawAllSprites gs = Pictures [ drawSpritesAt posns (M.elems $ sprites gs) sprite
   where
         posns = [(a-3,b-3) | a <- [0..7], b<-[0..7]]
         spritesSize = 4
+        vecadd (x,y) (a,b) = (x+a, y+b)
 
-vecadd (x,y) (a,b) = (x+a, y+b)
 drawSpritesAt posns sprs sz = Pictures $ map (\((x,y),s) -> translate (x*sprSize + 5) (y*sprSize + 5) $ drawSprite 0 sz s) $ zip posns sprs
   where sprSize = (fromIntegral sz)*8
 
@@ -203,18 +205,10 @@ cubeSolid c w =  Rotate 0 $ Pictures [Color black $ rectangleSolid (f w) (f w), 
   where f  = fromIntegral
         w2 | w < 8 = w - 1
            | otherwise = w - 4
-help :: [String]
-help = [ "---- Keys -------------"
-       , "u - Undo move"
-       , "n - New board (limited)" ]
-
 
 colorSea      = makeColor8 46 90 107 255
 colorSeaGlass = makeColor8 163 204 188 255
-colorGoldfish = makeColor8 255 147 84 255
-colorAnnajak  = makeColor8 252 223 184 255
 colorForFish _fc = colorSeaGlass
-type UiPosition = (Float, Float)
 
 drawLines :: Color -> (Float, Float) -> [String] -> Picture
 drawLines c (x,y) ls = Translate x y $  Color c $
