@@ -22,7 +22,7 @@ main = do
 
 colorFor :: Int -> Color
 colorFor i = colrs !! (i `mod` (length colrs))
-  where colrs = [black, white, green, yellow, red, blue, orange, chartreuse, azure, aquamarine, rose, cyan, magenta]
+  where colrs = [black, white, green, yellow, red, blue, orange, chartreuse, azure, black, aquamarine, rose, cyan, magenta]
 type MySprite = (String, GridArray)
 type GridArray = Array (Int, Int) Int
 
