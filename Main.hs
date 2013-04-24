@@ -8,8 +8,8 @@ import Data.Map (Map)
 import qualified Data.Map as M
 import Data.Array
 import Data.Time.Clock -- for naming new sprites
-import Data.List (nub, foldl')
-import Data.Maybe (fromMaybe)
+import Data.List (nub, foldl', sort)
+import Data.Maybe (fromMaybe, mapMaybe)
 main = do
   a <- getArgs
   contents <- readFile "sprites.dat"
@@ -22,7 +22,9 @@ main = do
 
 colorFor :: Int -> Color
 colorFor i = colrs !! (i `mod` (length colrs))
-  where colrs = [black, white, green, yellow, red, blue, orange, chartreuse, azure, black, aquamarine, rose, cyan, magenta]
+  where colrs = [black, white, green, yellow, red, blue, orange
+                , chartreuse, azure, black, aquamarine, rose
+                , cyan, magenta]
 type MySprite = (String, GridArray)
 type GridArray = Array (Int, Int) Int
 
@@ -51,6 +53,7 @@ incCount gs = gs { frame = frame gs + 1 }
 initGS sprs = GS { mirrorAxis = NoSym
 , frame = 0
 , board = M.empty
+, inputMode = SingleKey
 , boardCursorPos = (0,0)
 , libCursorPos = (0,0)
 , cursorPos = (0,0)
@@ -61,6 +64,8 @@ initSprite = ("untitled", array ((0,0), (7,7)) [((x,y),0) | x<- [0..7], y <- [0.
 
 backgroundColor = colorSea 
 
+data InputMode = EnterName (Maybe String) | SingleKey deriving (Show, Eq)
+
 saveSprite :: GS -> IO GS
 saveSprite gs = do
   time <- getCurrentTime
@@ -69,29 +74,66 @@ saveSprite gs = do
   let newSprites = M.insert newName spr (sprites gs)
   return $ gs { sprites = newSprites}
 
-renameSprite nn (_, ar) = (nn, ar)
+
+toggleInputModeNamingSprite gs = toggleInputMode gs'
+  where 
+    gs' = case inputMode gs of
+     EnterName (Just n) -> renameSpriteAtLibCursor n gs
+     _                  -> gs
+toggleInputMode gs = gs { inputMode = ti $ inputMode gs }
+  where 
+     ti SingleKey = EnterName Nothing
+     ti (EnterName _) = SingleKey
+
 
 deleteSprite :: GS -> GS
 deleteSprite gs = case spriteAtLibCursor gs of
   Just (name,spr) -> gs { sprites = M.delete name (sprites gs) }
   Nothing -> gs
+
 switchSprite :: GS -> GS
 switchSprite gs = gs { curSprite = fromMaybe (curSprite gs) (spriteAtLibCursor gs) }
+
+renameSpriteAtLibCursor :: String -> GS -> GS
+renameSpriteAtLibCursor newName gs = case spriteAtLibCursor gs of
+  Just oldSprite@(oldK,_) -> gs { sprites = M.delete oldK $ M.insert newName newSprite (sprites gs) }
+    where newSprite = renameSprite newName oldSprite
+  Nothing -> gs
+
+modSpriteAtLibCursor :: (MySprite -> MySprite) -> GS -> GS
+modSpriteAtLibCursor f gs = case k of
+  Just k -> gs { sprites = M.adjust f k (sprites gs) }
+  Nothing -> gs
+ where k = fmap spriteName $ spriteAtLibCursor gs
+
 spriteAtLibCursor gs = spriteAtPos (libCursorPos gs) gs
 spriteAtPos p gs = if ix < length sprs then Just (sprs !! ix) else Nothing
-  where sprs = M.elems (sprites gs)
+  where sprs = sort $ M.elems (sprites gs)
         ix = libCursorPosToSpriteNum p
 
 modAxis f gs = gs { mirrorAxis = f $ mirrorAxis gs }
 handleInput :: Event -> GS -> IO GS
-handleInput (EventKey k Down mods _) gs = handleDown k mods gs
+handleInput (EventKey k Down mods _) gs = case inputMode gs of
+  SingleKey     -> handleDown k mods gs
+  (EnterName x) -> return $ handleCollectNameKey k mods gs
 handleInput _ gs = return gs
+
+handleCollectNameKey (SpecialKey KeyEsc) _ gs = gs { inputMode = SingleKey } 
+handleCollectNameKey (SpecialKey KeyEnter) _ gs = toggleInputModeNamingSprite gs
+handleCollectNameKey (SpecialKey KeyBackspace) _ gs = gs { inputMode = EnterName Nothing }
+handleCollectNameKey (Char c) mods gs = 
+  case inputMode gs of
+     (EnterName oldName) -> gs { inputMode = EnterName $ Just $ (fromMaybe "" oldName)++[c] }
+     SingleKey           -> error $ "BUG: handleCollectNameKey called in SingleKey mode!"
+handleCollectNameKey _ _ gs = gs
+
 handleDown k mods gs  = let cursorType = if (shift mods == Down) then LibraryCursor else if (ctrl mods == Down) then BoardCursor else SpriteCursor
   in case k of
   (SpecialKey KeyDown)  -> changeCursor cursorType CDown
   (SpecialKey KeyUp)    -> changeCursor cursorType CUp
   (SpecialKey KeyLeft)  -> changeCursor cursorType CLeft
   (SpecialKey KeyRight) -> changeCursor cursorType CRight
+  (SpecialKey KeyEnter) -> return $ toggleInputModeNamingSprite gs
   (Char x) -> case x of
      'l' -> return $ switchSprite gs
      'X' -> return $ deleteSprite gs
@@ -108,6 +150,7 @@ handleDown k mods gs  = let cursorType = if (shift mods == Down) then LibraryCur
      'a' -> return $ modAxis incAxis gs
      'S' -> (writeSprites $ sprites gs) >> return gs
      other -> return $ if (other:"") `elem` (map show [0..9]) then modColor (read $ other:"") else gs
+  otherKey -> return gs
   where 
     modColor :: Int -> GS
     modColor cIx = modSpriteU (paintColorAt (mirrorAxis gs) (cursorPos gs) cIx) gs
@@ -185,6 +228,7 @@ data GS = GS { frame :: Int
              , cursorPos :: (Int, Int)
              , libCursorPos :: (Int, Int)
              , boardCursorPos :: (Int, Int)
+             , inputMode :: InputMode
              , board :: Map (Int, Int) MySprite
              , spriteBackups :: [MySprite]
              , curSprite :: MySprite
@@ -208,7 +252,11 @@ drawState gs = Pictures $
    
   where 
     i = frame gs
-    messages = ["hello", "world", show i, show $ mirrorAxis gs, show $ libCursorPosToSpriteNum (libCursorPos gs) ]
+    messages = [ "hello", "world", show i
+               , show $ mirrorAxis gs
+               , show $ inputMode gs
+               , show $ fmap spriteName $ spriteAtLibCursor gs
+               , show $ libCursorPosToSpriteNum (libCursorPos gs) ]
 
 drawBoard gs = Pictures $ [ drawCursor (boardCursorPos gs `vecadd` (-0, -0)) (8*spritesSize)
                           , drawSpritesAt (map toFloat $ M.keys $ board gs) (M.elems $ board gs) spritesSize
@@ -224,7 +272,7 @@ drawCanvas _ sz gs = Pictures [Color black $ rectangleWire (8*szf) (8*szf)
   where szf = fromIntegral sz
                              
 drawAllSprites :: GS -> Picture
-drawAllSprites gs = Pictures [ drawSpritesAt posns (M.elems $ sprites gs) spritesSize
+drawAllSprites gs = Pictures [ drawSpritesAt posns (sort $ M.elems $ sprites gs) spritesSize
                              , drawCursor (libCursorPos gs `vecadd` (-3, -3)) (8*spritesSize)
                              ]
   where
@@ -282,7 +330,7 @@ textWithSprites :: SpriteMap -> String -> Picture
 textWithSprites sprMap msg = drawSpritesAt posns sprs 8
   where
     posns = zip [0..] (cycle [0])
-    sprs = map ((sprMap M.!) . (:"")) msg
+    sprs = mapMaybe ((flip M.lookup sprMap) . (:"")) msg
 
 readCharsMap :: [String] -> M.Map String MySprite
 readCharsMap = M.fromList . readChars
@@ -309,11 +357,14 @@ writeSprites sprMap = do
   writeFile "sprites.dat" content
   
 writeSprite :: (String, MySprite) -> String
-writeSprite (name, (_, ar)) = unlines $ name : write ar
+writeSprite (name, (_, ar)) = traceShow name $ unlines $ name : write ar
    where
    write :: GridArray -> [String]
    write ar = wrapAt 8 [head $ show c | y <- [7,6..0], x <- [0..7], let c = ar ! (x,y)]
    wrapAt n [] = []
    wrapAt n xs = take n xs : wrapAt n (drop n xs)
 
+renameSprite nn (_, ar) = (nn, ar)
+spriteName (n,_) = n
+spriteArray (_, ar) = ar
 libCursorPosToSpriteNum (x,y) = 8*x + y
