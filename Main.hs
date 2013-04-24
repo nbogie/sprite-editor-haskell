@@ -118,14 +118,20 @@ handleInput (EventKey k Down mods _) gs = case inputMode gs of
   (EnterName x) -> return $ handleCollectNameKey k mods gs
 handleInput _ gs = return gs
 
-handleCollectNameKey (SpecialKey KeyEsc) _ gs = gs { inputMode = SingleKey } 
-handleCollectNameKey (SpecialKey KeyEnter) _ gs = toggleInputModeNamingSprite gs
-handleCollectNameKey (SpecialKey KeyBackspace) _ gs = gs { inputMode = EnterName Nothing }
-handleCollectNameKey (Char c) mods gs = 
+appendCharToSpriteName c gs = 
   case inputMode gs of
      (EnterName oldName) -> gs { inputMode = EnterName $ Just $ (fromMaybe "" oldName)++[c] }
-     SingleKey           -> error $ "BUG: handleCollectNameKey called in SingleKey mode!"
-handleCollectNameKey _ _ gs = gs
+     SingleKey           -> error $ "BUG: appendCharToSpriteName called in SingleKey mode!"
+
+
+handleCollectNameKey (SpecialKey KeyEnter)     mods gs = if shift mods == Down 
+                                                           then gs { inputMode = SingleKey } 
+                                                           else toggleInputModeNamingSprite gs
+handleCollectNameKey (SpecialKey KeyBackspace) _ gs = gs { inputMode = EnterName Nothing }
+
+handleCollectNameKey (SpecialKey KeySpace) _ gs = appendCharToSpriteName ' ' gs
+handleCollectNameKey (Char c) mods gs           = appendCharToSpriteName c gs
+handleCollectNameKey _        _    gs           = gs
 
 handleDown k mods gs  = let cursorType = if (shift mods == Down) then LibraryCursor else if (ctrl mods == Down) then BoardCursor else SpriteCursor
   in case k of
@@ -357,7 +363,7 @@ writeSprites sprMap = do
   writeFile "sprites.dat" content
   
 writeSprite :: (String, MySprite) -> String
-writeSprite (name, (_, ar)) = traceShow name $ unlines $ name : write ar
+writeSprite (name, (_, ar)) = unlines $ name : write ar
    where
    write :: GridArray -> [String]
    write ar = wrapAt 8 [head $ show c | y <- [7,6..0], x <- [0..7], let c = ar ! (x,y)]
