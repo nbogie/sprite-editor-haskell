@@ -299,11 +299,12 @@ drawSprite :: Int -> MySprite -> Picture
 drawSprite cubeSize (_sprName, spr) = 
   Pictures $ [ translate (-halfWid) (-halfWid) $ cubeAt ((x,y), c) cubeSize 
              | x <- [0..7], y <-[0..7], let c = spr ! (x,y) ] 
-             ++ [marker]
-             ++ [ Color green $ rectangleWire wholeSpriteSize wholeSpriteSize ]
-    where marker = Color green $ rectangleSolid 1 1
-          halfWid = wholeSpriteSize / 2
-          wholeSpriteSize = 8 * fromIntegral cubeSize
+             -- ++ [marker, border]
+    where 
+       marker = Color green $ rectangleSolid 1 1
+       border = Color green $ rectangleWire wholeSpriteSize wholeSpriteSize
+       halfWid = wholeSpriteSize / 2
+       wholeSpriteSize = 8 * fromIntegral cubeSize
 
 cubeAt :: ((Int, Int), Int) -> Int -> Picture
 cubeAt ((x,y),cIx) size = case cIx of
