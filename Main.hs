@@ -249,10 +249,10 @@ modSpriteU f gs = modSprite f $ gs { spriteBackups = curSprite gs : spriteBackup
 drawState :: GS -> Picture
 drawState gs = Pictures $ 
    [ translate (200)  (200)  $ drawCanvas (i `div` 20) 20 gs
-   , translate (200)  (-100) $ drawSprite 0 5 (curSprite gs)
+   , translate (200)  (-100) $ drawSprite 5 (curSprite gs)
    , translate (-200) (200)  $ drawAllSprites gs
    , translate (-200) (-200) $ drawBoard gs
-   , translate (fromIntegral (frame gs `mod` 800) - 300) (-300) $ drawSprite 0 5 (curSprite gs)
+   , translate (fromIntegral (frame gs `mod` 800) - 300) (-300) $ drawSprite 5 (curSprite gs)
    , translate (-200 - (frameAsFloat gs)) (-200) $ textWithSprites (sprites gs) "HASKELL"
    ,  drawLines colorSeaGlass (-300,0) messages]
    
@@ -265,17 +265,17 @@ drawState gs = Pictures $
                , show $ libCursorPosToSpriteNum (libCursorPos gs) ]
 
 drawBoard gs = Pictures $ [ drawCursor (boardCursorPos gs `vecadd` (-0, -0)) (8*spritesSize)
-                          , drawSpritesAt (map toFloat $ M.keys $ board gs) (M.elems $ board gs) spritesSize
+                          , drawSpritesAt (M.keys $ board gs) (M.elems $ board gs) spritesSize
                           ]
   where spritesSize = 8
-        toFloat (x,y) = (fi x, fi y)
-        fi = fromIntegral
   
 frameAsFloat gs = fromIntegral $ frame gs
-drawCanvas _ sz gs = Pictures [Color black $ rectangleWire (8*szf) (8*szf)
-                              , drawSprite 0 sz (curSprite gs)
-                              ,  drawCanvasCursor $ cursorPos gs]
+drawCanvas _ sz gs = Pictures [Color black $ rectangleWire w w
+                              , drawSprite sz (curSprite gs)
+                              ,  translate (-halfW) (-halfW) $ drawCanvasCursor (cursorPos gs) tileWidth]
   where szf = fromIntegral sz
+        w = 8 * szf
+        halfW = w / 2
                              
 drawAllSprites :: GS -> Picture
 drawAllSprites gs = Pictures [ drawSpritesAt posns (sort $ M.elems $ sprites gs) spritesSize
@@ -287,29 +287,45 @@ drawAllSprites gs = Pictures [ drawSpritesAt posns (sort $ M.elems $ sprites gs)
 
 vecadd (x,y) (a,b) = (x+a, y+b)
 
-drawSpritesAt ::  [(Float, Float)] -> [MySprite] -> Int -> Picture
-drawSpritesAt posns sprs sz = Pictures $ map (\((x,y),s) -> translate (x*sprSize + 5) (y*sprSize + 5) $ drawSprite 0 sz s) $ zip posns sprs
-  where sprSize = (fromIntegral sz)*8
+drawSpritesAt ::  [(Int, Int)] -> [MySprite] -> Int -> Picture
+drawSpritesAt posns sprs sz = 
+  Pictures $ map (\((x,y),s) -> 
+    translate ((fi x) * sprSize) ((fi y) * sprSize) $ drawSprite sz s) $ zip posns sprs
+    where 
+      sprSize = fromIntegral sz * 8
+      fi = fromIntegral
 
-drawSprite :: Int -> Int -> MySprite -> Picture
-drawSprite step size (sprName, spr) = 
-  Pictures $ [cubeAt ((x-4,y-4), c) step size | x <- [0..7], y <-[0..7], let c = spr ! (x,y)]
+drawSprite :: Int -> MySprite -> Picture
+drawSprite cubeSize (_sprName, spr) = 
+  Pictures $ [ translate (-halfWid) (-halfWid) $ cubeAt ((x,y), c) cubeSize 
+             | x <- [0..7], y <-[0..7], let c = spr ! (x,y) ] 
+             ++ [marker]
+             ++ [ Color green $ rectangleWire wholeSpriteSize wholeSpriteSize ]
+    where marker = Color green $ rectangleSolid 1 1
+          halfWid = wholeSpriteSize / 2
+          wholeSpriteSize = 8 * fromIntegral cubeSize
 
-cubeAt ((x,y),cIx) step size = case cIx of
+cubeAt :: ((Int, Int), Int) -> Int -> Picture
+cubeAt ((x,y),cIx) size = case cIx of
       0 -> Pictures []  
       _ -> translate (f x) (f y) $ cubeSolid c edgeLen
-            where c = colorFor $ (cIx + step)
-                  f n = fromIntegral $ size * (fromIntegral n)
-                  edgeLen = round $ (fromIntegral size) * 0.9
+            where c = colorFor cIx
+                  f n = fromIntegral size * ((0.5::Float) + fromIntegral n)
+                  edgeLen = round $ fromIntegral size * (0.9::Float)
 tileWidth :: Int
 tileWidth = 20
 
-drawCursor (x,y) sz = Color yellow $ translate (m x) (m y) $ rectangleWire (fi $ sz) (fi $ sz)
-  where m = fi .  (sz *)
-        fi = fromIntegral
-
-drawCanvasCursor (x,y) = Color yellow $ translate (m x) (m y) $ rectangleWire (fi $ tileWidth - 4) (fi $ tileWidth - 4)
-  where m = fi .  (tileWidth *) . (+ (-4))
+data CursorOffset = OffsetForCubes | NoOffset deriving (Show, Eq)
+drawCursor ::  (Int, Int) -> Int -> Picture
+drawCursor = dCursor NoOffset
+drawCanvasCursor ::  (Int, Int) -> Int -> Picture
+drawCanvasCursor = dCursor OffsetForCubes
+dCursor :: CursorOffset -> (Int, Int) -> Int -> Picture
+dCursor offsetType (x,y) sz = Color red $ translate (m x) (m y) $ rectangleWire (fi $ sz) (fi $ sz)
+  where 
+        m = ((fi sz) *) . (+ offsetFor offsetType) .  fi
+        offsetFor OffsetForCubes = 0.5
+        offsetFor NoOffset = 0
         fi = fromIntegral
 
 cubeSolid c w =  Rotate 0 $ Pictures [Color black $ rectangleSolid (f w) (f w), Color c $ rectangleSolid (f w2) (f w2)]
