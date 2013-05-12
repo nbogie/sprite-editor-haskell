@@ -4,7 +4,7 @@ An extremely simple sprite editor in haskell, using the Gloss library.
 
 This is just a learning exercise by a haskell beginner.
 
-![screenshot](https://github.com/nbogie/sprite-editor-haskell/raw/master/docs/screenshots/sprite-editor-screenshot-1.png)
+![screenshot](https://github.com/nbogie/sprite-editor-haskell/raw/master/docs/sprite-editor-screenshot-1.png)
 
 Keys:
 =====
