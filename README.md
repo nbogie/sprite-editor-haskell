@@ -1,9 +1,16 @@
-A trivial sprite editor in haskell, just a learning exercise.
+What is it?
+===========
+An extremely simple sprite editor in haskell, using the Gloss library.
+
+This is just a learning exercise by a haskell beginner.
+
+![screenshot](https://github.com/nbogie/sprite-editor-haskell/raw/master/docs/screenshots/sprite-editor-screenshot-1.png)
 
 Keys:
+=====
 
 Sprite Editing functions
-========================
+------------------------
 
  * Cursor Keys: move cursor in sprite-editing canvas
  * '1' - '9' color pixel under cursor (observing symmetry rules)
@@ -16,18 +23,19 @@ Sprite Editing functions
  * 'w' erase (wipe) sprite
  * 'z' erase color under pixel
  * 's' save current sprite to library (in-memory only)
+ * Return: Start / Stop renaming current sprite. Hit return, type a name, and hit return to finish.
 
 Library functions
-=================
+------------------------
+
  * Shift-Cursor Keys: Move library cursor (allows for load, save, rename of sprite)
  * 'l' load sprite at library cursor into editing canvas
  * 'X' delete sprite at library cursor
  * 'S' save sprite library to file (sprites.dat).
 
-* Return: Start / Stop renaming current sprite. Hit return, type a name, and hit return to finish.
-
 Board functions
-===============
+------------------------
+
 The "Board" has not been given much attention.
  * Ctrl-Cursor Keys: Move board cursor
  * 'p' place current sprite on the board at cursor position.
