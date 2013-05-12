@@ -1,48 +1,66 @@
 module Main where
-import Debug.Trace
-import Graphics.Gloss
+
+import Data.Array((//),array,(!),Array,inRange)
+import Data.List (foldl', sort)
 import qualified Data.Map as M
-import Graphics.Gloss.Interface.IO.Game
-import System.Environment
 import Data.Map (Map)
-import qualified Data.Map as M
-import Data.Array
-import Data.Time.Clock -- for naming new sprites
-import Data.List (nub, foldl', sort)
 import Data.Maybe (fromMaybe, mapMaybe)
+import Data.Time.Clock(utctDayTime,getCurrentTime)
+import Graphics.Gloss.Interface.IO.Game
+import System.Environment(getArgs)
+
+data GS = GS { frame :: Int
+             , cursorPos :: (Int, Int)
+             , libCursorPos :: (Int, Int)
+             , boardCursorPos :: (Int, Int)
+             , inputMode :: InputMode
+             , board :: Map (Int, Int) MySprite
+             , spriteBackups :: [MySprite]
+             , curSprite :: MySprite
+             , sprites :: SpriteMap
+             , mirrorAxis :: Axis
+             } deriving (Show, Eq)
+
+type MySprite = (String, GridArray)
+
+type SpriteMap = Map String MySprite
+
+type GridArray = Array (Int, Int) Int
+
+data Axis = VertSym | HorizSym | BothSym | NoSym deriving (Show, Eq, Bounded, Ord, Enum) 
+
+data CursorType = LibraryCursor | SpriteCursor | BoardCursor deriving (Show, Eq)
+
+data CursorDir = CLeft | CRight | CDown | CUp deriving (Eq, Show)
+
+data CursorOffset = OffsetForCubes | NoOffset deriving (Show, Eq)
+
+data InputMode = EnterName (Maybe String) | SingleKey deriving (Show, Eq)
+
+
 main = do
   a <- getArgs
   contents <- readFile "sprites.dat"
   let sprites =  readCharsMap (lines contents)
 
-  let step = case a of
-              (i:[]) -> (read i) :: Int
-              _      -> error "bad args"
-  guimain step sprites
+  guimain sprites
 
-colorFor :: Int -> Color
-colorFor i = colrs !! (i `mod` (length colrs))
-  where colrs = [black, white, green, yellow, red, blue, orange
-                , chartreuse, azure, black, aquamarine, rose
-                , cyan, magenta]
-type MySprite = (String, GridArray)
-type GridArray = Array (Int, Int) Int
-
-guimain :: Int -> M.Map String MySprite -> IO ()
-guimain step sprites = do
+guimain :: M.Map String MySprite -> IO ()
+guimain sprites = do
+  -- The only IO action we perform is saving sprites to disk, 
+  -- but we must use playIO to allow this in the loop.
   playIO
-          (InWindow "Sprite test" --name of the window
-            (700,800) -- initial size of the window
-            (0, 0) -- initial position of the window
+          (InWindow "Sprite Editor" -- name of the window
+          (700,800)                 -- initial size of the window
+          (0, 0)                    -- initial position of the window
           )
-          backgroundColor   -- background colour
-          30 -- number of simulation steps to take for each second of real time
-          (initGS sprites) -- the initial world
+          backgroundColor      -- background colour
+          30                   -- number of simulation steps to take for each second of real time
+          (initGS sprites)     -- the initial world
           (return . drawState) -- A function to convert the world into a picture
-          handleInput -- A function to handle input events
+          handleInput          -- A function to handle input events
           (\i w -> return $ updateGame i w)
 
-data Axis = VertSym | HorizSym | BothSym | NoSym deriving (Show, Eq, Bounded, Ord, Enum) 
 incAxis :: Axis -> Axis
 incAxis = toEnum . (`mod` (1+ fromEnum (maxBound::Axis))) . (+1). fromEnum
 
@@ -50,21 +68,20 @@ updateGame x gs = incCount gs
 
 incCount gs = gs { frame = frame gs + 1 }
 
-initGS sprs = GS { mirrorAxis = NoSym
-, frame = 0
-, board = M.empty
-, inputMode = SingleKey
-, boardCursorPos = (0,0)
-, libCursorPos = (0,0)
-, cursorPos = (0,0)
-, spriteBackups = []
-, curSprite = initSprite
-, sprites = sprs}
+initGS sprs =  GS { mirrorAxis = NoSym
+                  , frame = 0
+                  , board = M.empty
+                  , inputMode = SingleKey
+                  , boardCursorPos = (0,0)
+                  , libCursorPos = (0,0)
+                  , cursorPos = (0,0)
+                  , spriteBackups = []
+                  , curSprite = initSprite
+                  , sprites = sprs}
+
 initSprite = ("untitled", array ((0,0), (7,7)) [((x,y),0) | x<- [0..7], y <- [0..7]])
 
 backgroundColor = colorSea 
-
-data InputMode = EnterName (Maybe String) | SingleKey deriving (Show, Eq)
 
 saveSprite :: GS -> IO GS
 saveSprite gs = do
@@ -112,6 +129,7 @@ spriteAtPos p gs = if ix < length sprs then Just (sprs !! ix) else Nothing
         ix = libCursorPosToSpriteNum p
 
 modAxis f gs = gs { mirrorAxis = f $ mirrorAxis gs }
+
 handleInput :: Event -> GS -> IO GS
 handleInput (EventKey k Down mods _) gs = case inputMode gs of
   SingleKey     -> handleDown k mods gs
@@ -124,16 +142,21 @@ appendCharToSpriteName c gs =
      SingleKey           -> error $ "BUG: appendCharToSpriteName called in SingleKey mode!"
 
 
-handleCollectNameKey (SpecialKey KeyEnter)     mods gs = if shift mods == Down 
-                                                           then gs { inputMode = SingleKey } 
-                                                           else toggleInputModeNamingSprite gs
+handleCollectNameKey (SpecialKey KeyEnter)     mods gs = 
+  if shift mods == Down 
+    then gs { inputMode = SingleKey } 
+    else toggleInputModeNamingSprite gs
+
 handleCollectNameKey (SpecialKey KeyBackspace) _ gs = gs { inputMode = EnterName Nothing }
 
 handleCollectNameKey (SpecialKey KeySpace) _ gs = appendCharToSpriteName ' ' gs
 handleCollectNameKey (Char c) mods gs           = appendCharToSpriteName c gs
 handleCollectNameKey _        _    gs           = gs
 
-handleDown k mods gs  = let cursorType = if (shift mods == Down) then LibraryCursor else if (ctrl mods == Down) then BoardCursor else SpriteCursor
+handleDown k mods gs  = 
+  let cursorType = if (shift mods == Down) 
+                     then LibraryCursor 
+                     else if (ctrl mods == Down) then BoardCursor else SpriteCursor
   in case k of
   (SpecialKey KeyDown)  -> changeCursor cursorType CDown
   (SpecialKey KeyUp)    -> changeCursor cursorType CUp
@@ -143,8 +166,8 @@ handleDown k mods gs  = let cursorType = if (shift mods == Down) then LibraryCur
   (Char x) -> case x of
      'l' -> return $ switchSprite gs
      'X' -> return $ deleteSprite gs
---      '=' -> darken
---     '-' -> lighten
+     --'=' -> darken
+     --'-' -> lighten
      'm' -> return $ modSpriteU mirror gs
      'r' -> return $ modSpriteU rotateSprite gs
      'h' -> return $ modSpriteU (shadowSprite (colorAtCanvasCursor gs) 1) gs
@@ -163,18 +186,22 @@ handleDown k mods gs  = let cursorType = if (shift mods == Down) then LibraryCur
     changeCursor :: CursorType -> CursorDir -> IO GS
     changeCursor SpriteCursor d  = return $ gs { cursorPos    = capPos ((0,0), (7,7)) $ changePos d $ cursorPos gs } 
     changeCursor LibraryCursor d = return $ gs { libCursorPos = capPos ((0,0), (7,7)) $ changePos d $ libCursorPos gs } 
-    changeCursor BoardCursor d = return $ gs { boardCursorPos = capPos boardConstraints $ changePos d $ boardCursorPos gs } 
+    changeCursor BoardCursor d   = return $ gs { boardCursorPos = capPos boardConstraints $ changePos d $ boardCursorPos gs } 
+
 colorAtCanvasCursor gs = ar ! cursorPos gs
   where
     (_, ar) = curSprite gs
 boardConstraints = ((0,0), (7,7))
-data CursorType = LibraryCursor | SpriteCursor | BoardCursor deriving (Show, Eq)
+
 wipeSprite gs = modSpriteU wipe gs
+
 wipe :: MySprite -> MySprite
 wipe (n,a) = renameSprite n $ initSprite
+
 mirror :: MySprite -> MySprite
 mirror (n, ar) = (n, arflip)
   where arflip = ar // [((x,y), ar ! (7-x, y)) | y <- [0..7], x <- [0..7]]
+
 rotateSprite (n, ar) = (n, arflip)
   where arflip = ar // [((y, x), ar ! (x, y)) | y <- [0..7], x <- [0..7]]
 
@@ -189,6 +216,7 @@ wipeColor b (name, ar) = (name, ar')
 
 shadowSprite :: Int -> Int -> MySprite -> MySprite
 shadowSprite a b = applyShadow a b . wipeColor b 
+
 applyShadow a b (name, ar) = (name, ar')
   where 
         ar' :: GridArray
@@ -203,6 +231,7 @@ allPosns = [(x,y) | y <- [0..7], x <- [0..7]]
 
 placeSpriteOnBoard :: GS -> GS
 placeSpriteOnBoard gs = gs { board = M.insert (boardCursorPos gs) (curSprite gs) (board gs) }
+
 capPos ((x0,y0), (x1,y1)) (x,y) = (cap x x0 x1, cap y y0 y1)
   where
     cap n low hi | n < low = low
@@ -214,6 +243,7 @@ paintColorAt NoSym p c spr = setColorAt p c spr
 paintColorAt axis p c spr = foldl' f spr (mirroredPositions p axis)
   where
     f s pos = setColorAt pos c s
+
 mirroredPositions (x,y) HorizSym = [(x,y), ((7-x), y)]
 mirroredPositions (x,y) VertSym = [(x,y), (x, (7-y))]
 mirroredPositions (x,y) BothSym = [(x,y), (x, (7-y)), ((7-x), y), ((7-x), (7-y))]
@@ -221,26 +251,11 @@ mirroredPositions (x,y) BothSym = [(x,y), (x, (7-y)), ((7-x), y), ((7-x), (7-y))
 setColorAt :: (Int, Int) -> Int -> MySprite -> MySprite
 setColorAt p c (n,ar) = (n, ar // [(p, c)])
 
-data CursorDir = CLeft | CRight | CDown | CUp deriving (Eq, Show)
-
 changePos CLeft (x,y)  = (x-1, y)
 changePos CRight (x,y) = (x+1, y)
 changePos CDown (x,y)  = (x, y-1)
 changePos CUp (x,y)    = (x, y+1)
 
-type SpriteMap = Map String MySprite
-
-data GS = GS { frame :: Int
-             , cursorPos :: (Int, Int)
-             , libCursorPos :: (Int, Int)
-             , boardCursorPos :: (Int, Int)
-             , inputMode :: InputMode
-             , board :: Map (Int, Int) MySprite
-             , spriteBackups :: [MySprite]
-             , curSprite :: MySprite
-             , sprites :: SpriteMap
-             , mirrorAxis :: Axis
-             } deriving (Show, Eq)
 
 modSprite f gs = gs { curSprite = f $ curSprite gs }
 modSpriteU f gs = modSprite f $ gs { spriteBackups = curSprite gs : spriteBackups gs } 
@@ -313,14 +328,22 @@ cubeAt ((x,y),cIx) size = case cIx of
             where c = colorFor cIx
                   f n = fromIntegral size * ((0.5::Float) + fromIntegral n)
                   edgeLen = round $ fromIntegral size * (0.9::Float)
+
+colorFor :: Int -> Color
+colorFor i = colrs !! (i `mod` (length colrs))
+  where colrs = [black, white, green, yellow, red, blue, orange
+                , chartreuse, azure, black, aquamarine, rose
+                , cyan, magenta]
+
 tileWidth :: Int
 tileWidth = 20
 
-data CursorOffset = OffsetForCubes | NoOffset deriving (Show, Eq)
 drawCursor ::  (Int, Int) -> Int -> Picture
 drawCursor = dCursor NoOffset
+
 drawCanvasCursor ::  (Int, Int) -> Int -> Picture
 drawCanvasCursor = dCursor OffsetForCubes
+
 dCursor :: CursorOffset -> (Int, Int) -> Int -> Picture
 dCursor offsetType (x,y) sz = Color red $ translate (m x) (m y) $ rectangleWire (fi $ sz) (fi $ sz)
   where 
@@ -345,10 +368,6 @@ drawLines c (x,y) ls = Translate x y $  Color c $
 
 textAt x y content = Translate x y (Scale 0.12 0.12 (Text content))
 
--- color scheme
--- http://www.colourlovers.com/palette/437321/Sweet_penguin
---
-
 textWithSprites :: SpriteMap -> String -> Picture
 textWithSprites sprMap msg = drawSpritesAt posns sprs 8
   where
@@ -357,6 +376,7 @@ textWithSprites sprMap msg = drawSpritesAt posns sprs 8
 
 readCharsMap :: [String] -> M.Map String MySprite
 readCharsMap = M.fromList . readChars
+
 readChars :: [String] -> [(String, MySprite)]
 readChars [] = []
 readChars ls = thing : readChars remainder
@@ -374,6 +394,7 @@ readChar ls = case ls of
 
 readCharLine :: String -> [Int]
 readCharLine = map (read . (:""))
+
 writeSprites  :: SpriteMap -> IO () 
 writeSprites sprMap = do
   let content = concatMap writeSprite (M.toList sprMap)
@@ -388,6 +409,9 @@ writeSprite (name, (_, ar)) = unlines $ name : write ar
    wrapAt n xs = take n xs : wrapAt n (drop n xs)
 
 renameSprite nn (_, ar) = (nn, ar)
+
 spriteName (n,_) = n
+
 spriteArray (_, ar) = ar
+
 libCursorPosToSpriteNum (x,y) = 8*x + y

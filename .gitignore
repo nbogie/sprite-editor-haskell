@@ -1,0 +1,5 @@
+dist
+*.swp
+*.hi
+*.o
+oryx_sprites.png
